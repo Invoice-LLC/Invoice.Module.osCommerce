@@ -59,7 +59,7 @@ class Callback {
             return false;
         }
 
-        return false;
+        return true;
     }
 
     private function pay() {
