@@ -2,7 +2,7 @@
 
 <h3>Установка</h3>
 
-1. [Скачайте плагин](https://github.com/Invoice-LLC/Invoice.Module.WooCommerce/archive/master.zip) и скопируйте содержимое архива в корень сайта
+1. [Скачайте плагин](https://github.com/Invoice-LLC/Invoice.Module.osCommerce/archive/master.zip) и скопируйте содержимое архива в корень сайта
 2. Зайдите в панель администратора, во вкладку **Modules->Payment**, нажмите кнопку **Install Module**<br>
 ![Imgur](https://imgur.com/piIwVy9.png)
 3. Выберите в списке Invoice и нажмите Install Module
