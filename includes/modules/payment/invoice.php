@@ -5,6 +5,7 @@ include "InvoiceSDK/CREATE_TERMINAL.php";
 include "InvoiceSDK/common/ITEM.php";
 include "InvoiceSDK/common/ORDER.php";
 include "InvoiceSDK/common/SETTINGS.php";
+include "InvoiceSDK/GET_TERMINAL.php";
 
 class invoice
 {
@@ -41,7 +42,7 @@ class invoice
 
     function confirmation()
     {
-        return $this->checkOrCreateTerminal();
+        return $this->getTerminal();
     }
 
     function process_button()
@@ -72,29 +73,27 @@ class invoice
         return true;
     }
 
-    private function createPayment() {
+    private function createPayment()
+    {
         global $insert_id, $cart, $order;
 
         $sum = $order->info['total'];
         $currency = $order->info['currency'];
-        $account = $insert_id;
+        $terminal = $this->getTerminal();
 
-        if(!$this->checkOrCreateTerminal()) {
+        if ($terminal == null) {
             echo "<script type='text/javascript'> alert('Возникла ошибка при создании терминала, попробуйте позже'); </script>";
             return;
         }
 
-        $invoice_order = new INVOICE_ORDER($sum);
-        $invoice_order->currency = $currency;
-        $invoice_order->id = $insert_id;
+        $create_payment = new CREATE_PAYMENT();
+        $create_payment->order = $this->getOrder($sum, $currency, $insert_id);
+        $create_payment->settings = $this->getSettings();
+        $create_payment->receipt = $this->getReceipt();
 
-        $settings = new SETTINGS($this->terminal);
-        $settings->success_url = HTTP_SERVER;
-
-        $create_payment = new CREATE_PAYMENT($invoice_order,$settings,null);
         $info = $this->getRest()->CreatePayment($create_payment);
 
-        if($info == null or $info->error != null) {
+        if ($info == null or $info->error != null) {
             echo "<script type='text/javascript'> alert('Возникла ошибка при создании платежа, попробуйте позже'); </script>";
             return;
         }
@@ -107,44 +106,85 @@ class invoice
         tep_redirect($info->payment_url);
     }
 
-    private function checkOrCreateTerminal() {
-        if(MODULE_PAYMENT_INVOICE_TERMINAL == null or empty(MODULE_PAYMENT_INVOICE_TERMINAL)) {
-            $info = $this->createTerminal();
-            if($info == null or $info->error != null) {
-                return false;
-            } else {
-                $this->updateTerminal($info->id);
-                $this->terminal = $info->id;
-                return true;
-            }
-        }
-        $this->terminal = MODULE_PAYMENT_INVOICE_TERMINAL;
-        return true;
+    /**
+     * @return INVOICE_ORDER
+     */
+    private function getOrder($sum, $currency, $insert_id)
+    {
+        $order = new INVOICE_ORDER();
+        $order->amount = $this->$sum;
+        $order->id = $this->$insert_id;
+        $order->currency = $currency;
+
+        return $order;
     }
 
-    private function createTerminal() {
+    /**
+     * @return SETTINGS
+     */
+    private function getSettings()
+    {
+        $settings = new SETTINGS();
+        $settings->terminal_id = $this->terminal;
+        $settings->success_url = HTTP_SERVER;
+        $settings->fail_url = HTTP_SERVER;
 
+        return $settings;
+    }
+
+    /**
+     * @return ITEM
+     */
+    private function getReceipt()
+    {
+        $receipt = array();
+
+        return $receipt;
+    }
+
+    public function getTerminal()
+    {
+        $tid = MODULE_PAYMENT_INVOICE_TERMINAL;
         $restClient = $this->getRest();
 
-        $create_terminal = new CREATE_TERMINAL("osCommerce");
-        $create_terminal->type = "dynamical";
+        $terminal = new GET_TERMINAL();
+        $terminal->alias =  $tid;
+        $info = $restClient->GetTerminal($terminal);
 
-        return $restClient->CreateTerminal($create_terminal);
+        if ($tid == null or empty($tid) || $info->id == null || $info->id != $terminal->alias) {
+            $request = new CREATE_TERMINAL();
+            $request->name = "osCommerce";
+            $request->type = "dynamical";
+            $request->description = "osCommerce terminal";
+            $request->defaultPrice = 0;
+
+            $response = $restClient->CreateTerminal($request);
+
+            if ($response == null or $response->error != null) {
+                return false;
+            } else {
+                $this->updateTerminal($response->id);
+                $this->terminal = $response->id;
+                $tid = $response->id;
+            }
+        }
+        return $tid;
     }
 
-    private function getRest() {
-        $login= MODULE_PAYMENT_INVOICE_LOGIN;
+    private function getRest()
+    {
+        $login = MODULE_PAYMENT_INVOICE_LOGIN;
         $key = MODULE_PAYMENT_INVOICE_API_KEY;
 
         return new RestClient($login, $key);
     }
 
+
     function install()
     {
-
         global $cfgModules, $language;
         $module_language_directory = $cfgModules->get('payment', 'language_directory');
-        include_once($module_language_directory.$language."/modules/payment/invoice.php");
+        include_once($module_language_directory . $language . "/modules/payment/invoice.php");
 
         $success_id = $this->createOrderStatus(MODULE_PAYMENT_INVOICE_STATUS_SUCCESS_TITLE);
         $err_id = $this->createOrderStatus(MODULE_PAYMENT_INVOICE_STATUS_ERROR_TITLE);
@@ -156,9 +196,11 @@ class invoice
         $this->createField(MODULE_PAYMENT_INVOICE_STATUS_ERROR_TITLE, "MODULE_PAYMENT_INVOICE_STATUS_ERROR", $err_id);
     }
 
-    function createField($title, $key, $default = '') {
-        tep_db_query("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values (
-            '".$title."', 
+    function createField($title, $key, $default = '')
+    {
+        tep_db_query(
+            "insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values (
+            '" . $title . "', 
             '$key', 
             '$default', 
             '', 
@@ -166,19 +208,20 @@ class invoice
         );
     }
 
-    function updateTerminal($id) {
+    function updateTerminal($id)
+    {
         $this->updateValue("MODULE_PAYMENT_INVOICE_TERMINAL", $id);
     }
 
-    function updateValue($key, $value) {
-        tep_db_query("update ". TABLE_CONFIGURATION . " SET configuration_value = '".$value."' WHERE configuration_key='$key'");
+    function updateValue($key, $value)
+    {
+        tep_db_query("update " . TABLE_CONFIGURATION . " SET configuration_value = '" . $value . "' WHERE configuration_key='$key'");
     }
 
     function remove()
     {
         tep_db_query("delete from " . TABLE_CONFIGURATION .
             " where configuration_key in ('" . implode("', '", $this->keys()) . "')");
-
     }
 
     function keys()
@@ -192,8 +235,9 @@ class invoice
         );
     }
 
-    function createOrderStatus( $title ){
-        $q = tep_db_query("select orders_status_id from ".TABLE_ORDERS_STATUS." where orders_status_name = '".$title."' limit 1");
+    function createOrderStatus($title)
+    {
+        $q = tep_db_query("select orders_status_id from " . TABLE_ORDERS_STATUS . " where orders_status_name = '" . $title . "' limit 1");
         if (tep_db_num_rows($q) < 1) {
             $q = tep_db_query("select max(orders_status_id) as status_id from " . TABLE_ORDERS_STATUS);
             $row = tep_db_fetch_array($q);
@@ -209,7 +253,7 @@ class invoice
                     tep_db_query("insert into " . TABLE_ORDERS_STATUS . " (orders_status_id, language_id, orders_status_name) values ('" . $status_id . "', '" . $lang['id'] . "', " . "'" . $title . "')");
                 }
             }
-        }else{
+        } else {
             $status = tep_db_fetch_array($q);
             $status_id = $status['orders_status_id'];
         }
