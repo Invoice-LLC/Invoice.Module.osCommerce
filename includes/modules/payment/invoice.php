@@ -113,7 +113,7 @@ class invoice
     {
         $order = new INVOICE_ORDER();
         $order->amount = $this->$sum;
-        $order->id = $this->$insert_id;
+        $order->id = "$this->$insert_id" . "-" . bin2hex(random_bytes(5));
         $order->currency = $currency;
 
         return $order;
